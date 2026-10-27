@@ -262,10 +262,10 @@ export default function ContactForm() {
 
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || submitStatus === 'success'}
               className="w-full bg-[#2F80FF] hover:bg-[#2F80FF]/90 text-white px-8 py-4 rounded-lg font-semibold text-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isSubmitting ? 'Sending...' : 'Send Project Request'}
+              {isSubmitting ? 'Sending...' : submitStatus === 'success' ? 'Sent!' : 'Send Project Request'}
             </button>
           </form>
         </div>

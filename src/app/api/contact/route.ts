@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Resend } from 'resend'
 
-const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null
-
 export async function POST(request: NextRequest) {
   try {
+    console.log('[Contact Form] Submission received')
     const body = await request.json()
 
     const {
@@ -21,8 +20,9 @@ export async function POST(request: NextRequest) {
 
     // Server-side validation
     if (!fullName || !email || !service || !projectDescription) {
+      console.log('[Contact Form] Validation failed: missing required fields')
       return NextResponse.json(
-        { error: 'Missing required fields' },
+        { error: 'Missing required fields. Please fill in all required fields.' },
         { status: 400 }
       )
     }
@@ -30,22 +30,39 @@ export async function POST(request: NextRequest) {
     // Email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
     if (!emailRegex.test(email)) {
+      console.log('[Contact Form] Validation failed: invalid email format')
       return NextResponse.json(
-        { error: 'Invalid email address' },
+        { error: 'Invalid email address. Please enter a valid email.' },
         { status: 400 }
       )
     }
 
-    if (!resend) {
-      console.error('Resend API key not configured')
+    // Initialize Resend client
+    const resendApiKey = process.env.RESEND_API_KEY
+    if (!resendApiKey) {
+      console.error('[Contact Form] Error: RESEND_API_KEY not configured')
       return NextResponse.json(
         { error: 'Email service not configured. Please contact us at 0740272542, 0798350035, or kevinkips611@gmail.com.' },
         { status: 500 }
       )
     }
 
-    const fromEmail = process.env.FROM_EMAIL || 'noreply@vektorlabs.com'
+    const resend = new Resend(resendApiKey)
+
+    // Configure email addresses
+    const fromEmail = process.env.FROM_EMAIL
     const toEmail = process.env.TO_EMAIL || 'kevinkips611@gmail.com'
+
+    // Check if using default Resend domain
+    const usingDefaultDomain = !fromEmail
+    const actualFromEmail = fromEmail || 'onboarding@resend.dev'
+
+    console.log('[Contact Form] Sending email with Resend...')
+    console.log('[Contact Form] From:', actualFromEmail)
+    console.log('[Contact Form] To:', toEmail)
+    if (usingDefaultDomain) {
+      console.log('[Contact Form] Warning: Using default Resend domain. Configure FROM_EMAIL for a custom sender.')
+    }
 
     const submissionDate = new Date().toLocaleString('en-US', {
       timeZone: 'Africa/Nairobi',
@@ -55,6 +72,18 @@ export async function POST(request: NextRequest) {
       hour: '2-digit',
       minute: '2-digit',
     })
+
+    // Escape HTML to prevent XSS
+    const escapeHtml = (text: string) => {
+      const map: Record<string, string> = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;',
+      }
+      return text.replace(/[&<>"']/g, (m) => map[m])
+    }
 
     const htmlContent = `
       <!DOCTYPE html>
@@ -106,6 +135,7 @@ export async function POST(request: NextRequest) {
             background: #f8f9fa;
             border-radius: 4px;
             border-left: 3px solid #2F80FF;
+            word-wrap: break-word;
           }
           .footer {
             text-align: center;
@@ -122,48 +152,48 @@ export async function POST(request: NextRequest) {
         <div class="content">
           <div class="field">
             <div class="field-label">Client Name</div>
-            <div class="field-value">${fullName}</div>
+            <div class="field-value">${escapeHtml(fullName)}</div>
           </div>
           <div class="field">
             <div class="field-label">Email</div>
-            <div class="field-value">${email}</div>
+            <div class="field-value">${escapeHtml(email)}</div>
           </div>
           ${phone ? `
           <div class="field">
             <div class="field-label">Phone</div>
-            <div class="field-value">${phone}</div>
+            <div class="field-value">${escapeHtml(phone)}</div>
           </div>
           ` : ''}
           ${company ? `
           <div class="field">
             <div class="field-label">Company/Business</div>
-            <div class="field-value">${company}</div>
+            <div class="field-value">${escapeHtml(company)}</div>
           </div>
           ` : ''}
           <div class="field">
             <div class="field-label">Service Requested</div>
-            <div class="field-value">${service}</div>
+            <div class="field-value">${escapeHtml(service)}</div>
           </div>
           ${budget ? `
           <div class="field">
             <div class="field-label">Budget Range</div>
-            <div class="field-value">${budget}</div>
+            <div class="field-value">${escapeHtml(budget)}</div>
           </div>
           ` : ''}
           ${timeline ? `
           <div class="field">
             <div class="field-label">Preferred Timeline</div>
-            <div class="field-value">${timeline}</div>
+            <div class="field-value">${escapeHtml(timeline)}</div>
           </div>
           ` : ''}
           <div class="field">
             <div class="field-label">Project Description</div>
-            <div class="field-value">${projectDescription}</div>
+            <div class="field-value">${escapeHtml(projectDescription)}</div>
           </div>
           ${additionalInfo ? `
           <div class="field">
             <div class="field-label">Additional Message</div>
-            <div class="field-value">${additionalInfo}</div>
+            <div class="field-value">${escapeHtml(additionalInfo)}</div>
           </div>
           ` : ''}
           <div class="field">
@@ -179,7 +209,7 @@ export async function POST(request: NextRequest) {
     `
 
     const { data, error } = await resend.emails.send({
-      from: fromEmail,
+      from: actualFromEmail,
       to: toEmail,
       replyTo: email,
       subject: `New Website Project Enquiry — Vektor Labs`,
@@ -187,19 +217,23 @@ export async function POST(request: NextRequest) {
     })
 
     if (error) {
-      console.error('Resend error:', error)
+      console.error('[Contact Form] Resend API error:', {
+        name: error.name,
+        message: error.message
+      })
       return NextResponse.json(
         { error: 'Failed to send email. Please try again or contact us at 0740272542, 0798350035, or kevinkips611@gmail.com.' },
         { status: 500 }
       )
     }
 
+    console.log('[Contact Form] Email sent successfully. ID:', data.id)
     return NextResponse.json(
       { message: 'Email sent successfully', data },
       { status: 200 }
     )
   } catch (error) {
-    console.error('Contact form error:', error)
+    console.error('[Contact Form] Unexpected error:', error instanceof Error ? error.message : 'Unknown error')
     return NextResponse.json(
       { error: 'An error occurred. Please try again or contact us at 0740272542, 0798350035, or kevinkips611@gmail.com.' },
       { status: 500 }
